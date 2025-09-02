@@ -82,6 +82,31 @@ app.MapGet("/api/games/search", (string q, int take, bool includeAdult, IGameSea
     return Results.Ok(Result.Ok(results));
 });
 
+// Vector search endpoint: client supplies embedding vector directly (must match dimension)
+app.MapPost("/api/games/search/vector", (VectorSearchRequest req, int take, bool includeAdult, IGameRepository repo, IEmbeddingProvider provider, ILogger<Program> log) =>
+{
+    if (req?.Vector is null || req.Vector.Length == 0)
+        return Results.BadRequest(Result.Fail<List<GameSearchResultDto>>("Vector required","validation"));
+    if (req.Vector.Length != provider.Dimension)
+        return Results.BadRequest(Result.Fail<List<GameSearchResultDto>>($"Vector dimension {req.Vector.Length} != expected {provider.Dimension}","dimension_mismatch"));
+    if (take <= 0) take = 10;
+    var games = repo.GetAll();
+    var results = new List<GameSearchResultDto>();
+    foreach (var g in games)
+    {
+        if (!includeAdult && g.IsAdult) continue;
+        var gv = repo.GetEmbedding(g.Id);
+        if (gv is null) continue; // require precomputed for vector search efficiency
+        if (gv.Length != req.Vector.Length) continue;
+        double dot = 0; for (int i = 0; i < gv.Length; i++) dot += gv[i] * req.Vector[i];
+        if (dot > 0)
+            results.Add(new GameSearchResultDto(new GameDto(g.Id, g.Name, g.Description, g.Tags, g.IsAdult), dot));
+    }
+    var ordered = results.OrderByDescending(r => r.Score).Take(take).ToList();
+    log.LogInformation("Vector search take={Take} results={Count}", take, ordered.Count);
+    return Results.Ok(Result.Ok(ordered));
+});
+
 // Dataset manifest (if present next to DB)
 app.MapGet("/api/dataset/manifest", (ILogger<Program> log) =>
 {
@@ -133,3 +158,4 @@ app.Run();
 record GameIngestRequest(string Name, string Description, List<string> Tags, bool IsAdult = false);
 record GameDto(Guid Id, string Name, string Description, IReadOnlyList<string> Tags, bool IsAdult);
 record GameSearchResultDto(GameDto Game, double Score);
+record VectorSearchRequest(float[] Vector);

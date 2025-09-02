@@ -13,7 +13,7 @@ public static class EtlRunner
 {
     public sealed record Result(string DbPath, string ManifestPath, string DbSha256, int GameCount);
 
-    public static async Task<Result> RunAsync(ILogger? log = null, CancellationToken cancellationToken = default)
+    public static Task<Result> RunAsync(ILogger? log = null, CancellationToken cancellationToken = default)
     {
         // Resolve base directory (invoker working dir)
         var baseDir = AppContext.BaseDirectory;
@@ -21,60 +21,38 @@ public static class EtlRunner
         if (File.Exists(dbPath)) File.Delete(dbPath);
 
         int gameCount;
-        var http = new HttpClient();
-        var steamClient = new SteamClient(http, Environment.GetEnvironmentVariable("STEAM_API_KEY"), Microsoft.Extensions.Logging.Abstractions.NullLogger<SteamClient>.Instance);
-        var cachePath = Path.Combine(baseDir, "apps-cache.json");
-        List<SteamClient.SteamAppId> allApps;
-        bool loadedFromCache = false;
-        if (!AppConfig.EtlForceRefresh && File.Exists(cachePath))
+    var http = new HttpClient();
+    List<(int AppId, string Name)> allApps;
+    bool live = string.Equals(Environment.GetEnvironmentVariable("USE_STEAM_LIVE"), "true", StringComparison.OrdinalIgnoreCase);
+    SteamClient? steamClient = null;
+    if (live)
+    {
+        try
         {
-            try
-            {
-                using var fs = File.OpenRead(cachePath);
-                var cached = JsonSerializer.Deserialize<List<SteamClient.SteamAppId>>(fs);
-                if (cached is not null && cached.Count > 0)
-                {
-                    allApps = cached;
-                    loadedFromCache = true;
-                    log?.LogInformation("Loaded cached Steam app list (count={Count}). Set ETL_FORCE_REFRESH=1 to refresh.", allApps.Count);
-                }
-                else
-                {
-                    log?.LogInformation("Cache empty; fetching app list (Steam)...");
-                    allApps = await steamClient.GetAllAppsAsync();
-                }
-            }
-            catch
-            {
-                log?.LogWarning("Failed reading cache; fetching app list (Steam)...");
-                allApps = await steamClient.GetAllAppsAsync();
-            }
+            steamClient = new SteamClient(http, Environment.GetEnvironmentVariable("STEAM_API_KEY"), new LoggerFactory().CreateLogger<SteamClient>());
+            var apps = steamClient.GetAllAppsAsync(cancellationToken).GetAwaiter().GetResult();
+            allApps = apps.Where(a => !string.IsNullOrWhiteSpace(a.Name)).Select(a => (a.AppId, a.Name)).ToList();
+            log?.LogInformation("Fetched live Steam app census count={Count}", allApps.Count);
         }
-        else
+        catch (Exception ex)
         {
-            log?.LogInformation(AppConfig.EtlForceRefresh ? "Force refresh enabled; fetching app list (Steam)..." : "Fetching app list (Steam)...");
-            allApps = await steamClient.GetAllAppsAsync();
+            log?.LogWarning(ex, "Falling back to synthetic app list (Steam fetch failed)");
+            allApps = Enumerable.Range(1, 500).Select(i => (100000 + i, $"Placeholder Game {i}")) .ToList();
+            live = false; // disable live path for remainder
         }
-
-        if (!loadedFromCache)
-        {
-            try
-            {
-                File.WriteAllText(cachePath, JsonSerializer.Serialize(allApps, new JsonSerializerOptions { WriteIndented = false }));
-            }
-            catch (Exception ex)
-            {
-                log?.LogWarning(ex, "Failed to write app list cache");
-            }
-        }
+    }
+    else
+    {
+        allApps = Enumerable.Range(1, 500).Select(i => (100000 + i, $"Placeholder Game {i}")) .ToList();
+    }
 
         var rnd = AppConfig.EtlRandomSeed.HasValue ? new Random(AppConfig.EtlRandomSeed.Value) : Random.Shared;
         int sampleSize = AppConfig.EtlSampleSize;
-    var sampledAppIds = allApps.Where(a => !string.IsNullOrWhiteSpace(a.Name))
-            .OrderBy(_ => rnd.Next())
-            .Take(sampleSize)
-            .Select(a => a.AppId)
-            .ToArray();
+    var sampledAppIds = allApps
+        .OrderBy(_ => rnd.Next())
+        .Take(sampleSize)
+        .Select(a => a.AppId)
+        .ToArray();
     log?.LogInformation("Sampled {Count} app ids (target {Target}).", sampledAppIds.Length, sampleSize);
         var rawDir = Path.Combine(baseDir, "raw-steam");
         Directory.CreateDirectory(rawDir);
@@ -99,28 +77,49 @@ CREATE TABLE Embeddings (
                 cmd.ExecuteNonQuery();
             }
 
-            var provider = new DeterministicEmbeddingProvider();
+            // Select embedding provider (deterministic default, ONNX if enabled)
+            IEmbeddingProvider provider;
+            var useOnnx = string.Equals(Environment.GetEnvironmentVariable("USE_ONNX_EMBEDDINGS"), "true", StringComparison.OrdinalIgnoreCase);
+            if (useOnnx)
+            {
+                provider = new OnnxEmbeddingProvider();
+                log?.LogInformation("Using ONNX embedding provider for ETL (flag USE_ONNX_EMBEDDINGS=true).");
+            }
+            else
+            {
+                provider = new DeterministicEmbeddingProvider();
+            }
             var fetched = new List<(string name, string desc, string[] tags, bool isAdult)>();
             foreach (var appId in sampledAppIds)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                try
+                if (live)
                 {
-                    var details = await steamClient.GetAppDetailsAsync(appId);
-                    if (details is null) continue;
-                    var reviews = await steamClient.GetReviewsAsync(appId, count: 10, language: "english");
-                    File.WriteAllText(Path.Combine(rawDir, $"{appId}_details.json"), JsonSerializer.Serialize(details, new JsonSerializerOptions { WriteIndented = true }));
-                    if (reviews is not null)
-                        File.WriteAllText(Path.Combine(rawDir, $"{appId}_reviews.json"), JsonSerializer.Serialize(reviews, new JsonSerializerOptions { WriteIndented = true }));
-                    var reviewText = reviews is null ? string.Empty : string.Join(" \n", reviews.Reviews.Select(r => r.ReviewText));
-                    var tags = details.Categories.Concat(details.Genres).Select(t => t.ToLowerInvariant()).Distinct().Take(12).ToArray();
-                    var desc = string.IsNullOrWhiteSpace(details.ShortDescription) ? details.DetailedDescription : details.ShortDescription;
-                    var combined = desc + "\n" + string.Join(' ', reviewText.Split(' ').Take(120));
-                    fetched.Add((details.Name, combined, tags, false));
+                    try
+                    {
+                        if (steamClient is null)
+                            steamClient = new SteamClient(http, Environment.GetEnvironmentVariable("STEAM_API_KEY"), new LoggerFactory().CreateLogger<SteamClient>());
+                        var details = steamClient.GetAppDetailsAsync(appId, cancellationToken).GetAwaiter().GetResult();
+                        if (details is null) { continue; }
+                        var reviews = steamClient.GetReviewsAsync(appId, count: 10, language: "english", cancellationToken).GetAwaiter().GetResult();
+                        var reviewText = reviews is null ? string.Empty : string.Join(" \n", reviews.Reviews.Select(r => r.ReviewText));
+                        var tags = details.Categories.Concat(details.Genres).Select(t => t.ToLowerInvariant()).Distinct().Take(12).ToArray();
+                        var desc = string.IsNullOrWhiteSpace(details.ShortDescription) ? details.DetailedDescription : details.ShortDescription;
+                        var combined = desc + "\n" + string.Join(' ', reviewText.Split(' ').Take(120));
+                        fetched.Add((details.Name, combined, tags, false));
+                    }
+                    catch (Exception ex)
+                    {
+                        log?.LogWarning(ex, "Failed fetching live data for app {AppId}; using placeholder entry", appId);
+                        fetched.Add(($"Placeholder Game {appId}", "Live fetch failed; placeholder description.", new[] { "placeholder", "game" }, false));
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    log?.LogWarning(ex, "Failed fetching app {AppId}", appId);
+                    var name = $"Placeholder Game {appId}";
+                    var desc = "A placeholder description used for early embedding pipeline validation.";
+                    var tags = new[] { "placeholder", "game" };
+                    fetched.Add((name, desc, tags, false));
                 }
             }
             if (fetched.Count == 0)
@@ -165,16 +164,19 @@ CREATE TABLE Embeddings (
             using var conn2 = new SqliteConnection($"Data Source={dbPath}");
             conn2.Open();
             using var cmd = conn2.CreateCommand();
-            cmd.CommandText = "SELECT Vector FROM Embeddings LIMIT 5";
+            // Deterministic ordering: first N by rowid
+            cmd.CommandText = "SELECT Vector FROM Embeddings ORDER BY rowid ASC LIMIT 8";
             using var r = cmd.ExecuteReader();
             using var sha = SHA256.Create();
+            int count = 0;
             while (r.Read())
             {
                 var bytes = (byte[])r[0];
                 sha.TransformBlock(bytes, 0, bytes.Length, null, 0);
+                count++;
             }
             sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-            embeddingsSampleSha = Convert.ToHexString(sha.Hash!).ToLowerInvariant();
+            embeddingsSampleSha = count > 0 ? Convert.ToHexString(sha.Hash!).ToLowerInvariant() : string.Empty;
         }
         catch { embeddingsSampleSha = string.Empty; }
 
@@ -194,11 +196,23 @@ CREATE TABLE Embeddings (
         catch { appListHash = string.Empty; }
 
     var sampledCount = sampledAppIds.Length;
-    var manifest = DatasetManifest.Placeholder() with { GameCount = gameCount, DbSha256 = dbSha, EmbeddingsSampleSha256 = embeddingsSampleSha, AppListSha256 = appListHash, SampledAppIds = sampledCount, SampleSeed = AppConfig.EtlRandomSeed };
+        string? modelFileHash = null;
+        string? tokenizerFileHash = null;
+        try
+        {
+            var modelPath = Environment.GetEnvironmentVariable("ACTUALGAME_MODEL_PATH");
+            if (!string.IsNullOrWhiteSpace(modelPath) && File.Exists(modelPath))
+                modelFileHash = DatasetManifestLoader.ComputeSha256(modelPath);
+            var tokPath = Environment.GetEnvironmentVariable("ACTUALGAME_TOKENIZER_VOCAB");
+            if (!string.IsNullOrWhiteSpace(tokPath) && File.Exists(tokPath))
+                tokenizerFileHash = DatasetManifestLoader.ComputeSha256(tokPath);
+        }
+        catch { /* ignore hash failures */ }
+    var manifest = DatasetManifest.Placeholder() with { GameCount = gameCount, DbSha256 = dbSha, EmbeddingsSampleSha256 = embeddingsSampleSha, AppListSha256 = appListHash, SampledAppIds = sampledCount, SampleSeed = AppConfig.EtlRandomSeed, ModelFileSha256 = modelFileHash, TokenizerFileSha256 = tokenizerFileHash };
         var manifestPath = Core.AppConfig.ManifestPath;
         File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
         log?.LogInformation("ETL complete. Games={Games} DbHash={Hash}", gameCount, dbSha);
-        return new Result(dbPath, manifestPath, dbSha, gameCount);
+    return Task.FromResult(new Result(dbPath, manifestPath, dbSha, gameCount));
     }
 
     /// <summary>

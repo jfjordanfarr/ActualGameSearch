@@ -11,8 +11,8 @@ Build ultra‑low‑cost hybrid semantic search for games proving:
 ## Current Decisions (Authoritative)
 | Area | Decision | Date |
 |------|----------|------|
-| Embedding model (bootstrap) | mini-clip-int8 (512 dim) | 2025-09-01 |
-| Adult content | Retain + flag; filtering UX later | 2025-09-01 |
+| Embedding model (bootstrap) | OpenCLIP ViT-B/32 (512 dim, text path first, image later) | 2025-09-01 |
+| Adult content | Retain + flag (default include; future UI filter) | 2025-09-01 |
 | Aggregation weights | Reviews only (α=1, β=0) | 2025-09-01 |
 | Storage | SQLite (games.db) + manifest.json | 2025-09-01 |
 | Parity threshold | 0.995 cosine per prompt | 2025-09-01 |

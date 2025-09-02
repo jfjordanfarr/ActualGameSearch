@@ -16,10 +16,13 @@ public sealed record DatasetManifest(
     string EmbeddingsSampleSha256,
     string AppListSha256,
     int SampledAppIds,
-    int? SampleSeed)
+    int? SampleSeed,
+    string? ModelFileSha256 = null,
+    string? TokenizerFileSha256 = null,
+    string? CalibrationVectorsSha256 = null)
 {
     public static DatasetManifest Placeholder() => new(
         "1.0", DateTime.UtcNow,
         new EmbeddingModelInfo(Core.Model.EmbeddingModelDefaults.ModelId, Core.Model.EmbeddingModelDefaults.Dimension, Core.Model.EmbeddingModelDefaults.TokenizerId, Core.Model.EmbeddingModelDefaults.Quantization),
-        1.0, 0.0, 0, 0, 20, 20, true, string.Empty, string.Empty, string.Empty, 0, null);
+    1.0, 0.0, 0, 0, 20, 20, true, string.Empty, string.Empty, string.Empty, 0, null, null, null, null);
 }

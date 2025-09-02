@@ -37,6 +37,12 @@ This guide walks a new contributor through running the Actual Game Search stack 
 6. Open `/search` and type a query; similarity search runs server-side using precomputed embeddings.
 7. Open `/parity` to compare local deterministic embedding vs server debug embedding (will evolve to real model parity).
 
+### One-Liner Dev Flow (PowerShell)
+```
+dotnet build; dotnet run --project ActualGameSearch.ETL; dotnet run --project ActualGameSearch.AppHost
+```
+Then open the WebApp URL from console and navigate to `/search`.
+
 ## Environment Variables
 | Variable | Purpose | Default |
 |----------|---------|---------|
@@ -60,12 +66,16 @@ After ETL:
 * Tests include parity checks and unit norm validation (`StoredEmbeddings_IfPresent_AreUnitNorm`).
 
 ## Switching To A Real Embedding Model
-The current placeholder deterministic provider will be replaced by a MiniCLIP/MobileCLIP ONNX model (512‑dim). Steps (high level):
-1. Add ONNX model + tokenizer assets (wwwroot or R2).
-2. Implement `OnnxEmbeddingModelLoader` to materialize an inference session.
-3. Replace `DeterministicEmbeddingProvider` registration with real provider (server).
-4. Add client-side ONNX Runtime Web + tokenizer JS; modify parity and search pages to compute query embedding in-browser and POST vector to API (or perform local ranking later).
-5. Regenerate dataset via ETL using the real model; manifest updates with any new fields.
+Target model: OpenCLIP ViT-B/32 (text path first, 512‑dim). Transition steps:
+1. Run model download script:
+```
+pwsh ./scripts/download-model-openclip.ps1 -ModelUrl <onnx_url> -TokenizerVocabUrl <vocab_url> -TokenizerMergesUrl <merges_url>
+```
+2. Set env vars (or put in user profile): `USE_ONNX_EMBEDDINGS=true`, `ACTUALGAME_MODEL_PATH`, `ACTUALGAME_TOKENIZER_VOCAB`, optionally `ACTUALGAME_TOKENIZER_MERGES`.
+3. Run ETL again (now produces semantic embeddings + fills `ModelFileSha256`/`TokenizerFileSha256` in manifest).
+4. Generate calibration vectors (future step) and commit updated `embedding_parity_calibration.json` with reference embeddings.
+5. Add client ONNX Runtime Web + tokenizer JS; compute query embedding locally and POST to `/api/games/search/vector`.
+6. (Later) Add image encoder path and fused search.
 
 ## Future Image Integration (Deferred)
 Image embeddings (capsule / hero images) will be added in a later phase:

@@ -54,6 +54,44 @@ internal sealed class ManifestValidationHostedService : IHostedService
                 {
                     _logger.LogInformation("DB path {DbPath} not present; skipping hash recompute", dbPath);
                 }
+
+                // Model / tokenizer file hash validation (best-effort)
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(manifest.ModelFileSha256))
+                    {
+                        var modelPath = Environment.GetEnvironmentVariable("ACTUALGAME_MODEL_PATH");
+                        if (!string.IsNullOrWhiteSpace(modelPath) && File.Exists(modelPath))
+                        {
+                            var mh = ActualGameSearch.Core.Manifest.DatasetManifestLoader.ComputeSha256(modelPath);
+                            if (!string.Equals(mh, manifest.ModelFileSha256, StringComparison.OrdinalIgnoreCase))
+                            {
+                                var msg = $"Model file hash mismatch current={mh} manifest={manifest.ModelFileSha256}";
+                                if (strict) throw new InvalidOperationException(msg);
+                                _logger.LogWarning(msg);
+                            }
+                        }
+                    }
+                    if (!string.IsNullOrWhiteSpace(manifest.TokenizerFileSha256))
+                    {
+                        var tokPath = Environment.GetEnvironmentVariable("ACTUALGAME_TOKENIZER_VOCAB");
+                        if (!string.IsNullOrWhiteSpace(tokPath) && File.Exists(tokPath))
+                        {
+                            var th = ActualGameSearch.Core.Manifest.DatasetManifestLoader.ComputeSha256(tokPath);
+                            if (!string.Equals(th, manifest.TokenizerFileSha256, StringComparison.OrdinalIgnoreCase))
+                            {
+                                var msg = $"Tokenizer file hash mismatch current={th} manifest={manifest.TokenizerFileSha256}";
+                                if (strict) throw new InvalidOperationException(msg);
+                                _logger.LogWarning(msg);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (strict) throw;
+                    _logger.LogWarning(ex, "Model/tokenizer hash validation failed");
+                }
             }
             else
             {

@@ -28,6 +28,8 @@
 
   <!-- Data -->
   <PackageVersion Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+  <!-- ML / ONNX -->
+  <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.19.0" />
 
   <!-- Testing -->
   <PackageVersion Include="xunit" Version="2.7.0" />

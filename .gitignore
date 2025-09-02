@@ -1,4 +1,7 @@
-﻿bin/
+﻿# Model artifacts (downloaded locally, never commit large binaries)
+models/
+AI-Agent-Workspace/LocalOps/
+bin/
 obj/
 .vs/
 *.user

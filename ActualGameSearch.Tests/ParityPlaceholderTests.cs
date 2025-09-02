@@ -35,6 +35,21 @@ public class ParityPlaceholderTests
         Assert.Equal(_provider.Dimension, dim);
         var prompts = json.RootElement.GetProperty("prompts").EnumerateArray().Select(e => e.GetString() ?? string.Empty).ToList();
         Assert.NotEmpty(prompts);
+        // If vectors precomputed, validate cosine drift <= tolerance
+        if (json.RootElement.TryGetProperty("vectors", out var vectorsEl))
+        {
+            int idx = 0;
+            foreach (var p in prompts)
+            {
+                if (idx >= vectorsEl.GetArrayLength()) break;
+                var refVec = vectorsEl[idx].EnumerateArray().Select(v => (float)v.GetDouble()).ToArray();
+                var cur = _provider.Embed(p);
+                Assert.Equal(dim, refVec.Length);
+                double dot = 0; for (int i = 0; i < dim; i++) dot += refVec[i] * cur[i];
+                Assert.InRange(dot, 0.995, 1.005);
+                idx++;
+            }
+        }
         foreach (var p in prompts)
         {
             var v = _provider.Embed(p);

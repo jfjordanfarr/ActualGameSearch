@@ -10,6 +10,7 @@ public sealed class OnnxEmbeddingModelLoader
     public int Dimension => EmbeddingModelDefaults.Dimension;
     public string? ModelFilePath { get; }
     public bool IsLoaded { get; private set; }
+    private object? _session; // placeholder for actual inference session
 
     public OnnxEmbeddingModelLoader(string? modelFilePath = null)
     {
@@ -21,7 +22,11 @@ public sealed class OnnxEmbeddingModelLoader
     /// </summary>
     public void Load()
     {
-        // Future: validate file hash, initialize inference session, warm cache.
+        if (IsLoaded) return;
+        if (ModelFilePath is null || !File.Exists(ModelFilePath))
+            throw new FileNotFoundException("Model file missing", ModelFilePath ?? "(null)");
+        // Future: initialize ONNX Runtime session here.
+        // _session = new InferenceSession(ModelFilePath, sessionOptions);
         IsLoaded = true;
     }
 }
