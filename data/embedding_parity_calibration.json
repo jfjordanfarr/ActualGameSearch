@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "model_expected": { "id": "mini-clip-int8", "dimension": 512 },
+  "prompts": [
+    "Counter-Strike",
+    "Stardew Valley",
+    "cozy farming simulation with relationships and crafting",
+    "dark gothic roguelike with permadeath and progression",
+    "sci-fi deckbuilding strategy with roguelite elements",
+    "fast-paced roguelike deckbuilder with daily challenges",
+    "story-rich narrative exploration in space",
+    "retro pixel art metroidvania with crafting system",
+    "cozy farming sim with dynamic seasons",
+    "multiplayer tactical hero shooter focusing on verticality",
+    "turn-based strategy with procedural galaxy generation",
+    "physics-based puzzle platformer about time reversal",
+    "open world survival crafting on floating islands",
+    "deckbuilding autobattler hybrid with roguelite progression",
+    "asymmetric horror stealth game",
+    "city builder focused on climate disaster management",
+    "minimalist abstract logic puzzler",
+    "soulslike melee combat with rhythmic parry system",
+    "sandbox colony sim with dwarves and automation",
+    "VR rhythm slicing experience with procedural generation"
+  ]
+}

@@ -1,0 +1,47 @@
+@page "/parity"
+@using System.Net.Http.Json
+<h1>Embedding Parity (Placeholder)</h1>
+
+<div class="mb-3">
+  <label>Text</label>
+  <textarea class="form-control" @bind-value="text" @bind-value:event="oninput" rows="3"></textarea>
+</div>
+<button class="btn btn-primary" @onclick="CompareAsync">Compare</button>
+
+@if (serverVector is not null && localVector is not null)
+{
+    <p>Dimension: @serverVector.Value.dimension</p>
+    <p>Match: <strong>@(Match ? "YES" : "NO")</strong></p>
+    <p>First 8 floats (server/local):</p>
+    <ul>
+        @for (int i=0;i<Math.Min(8, serverVector.Value.vector.Length);i++)
+        {
+            <li>@serverVector.Value.vector[i]:@localVector.Value.vector[i]</li>
+        }
+    </ul>
+}
+
+@code {
+    private string text = "cozy farming rpg with pixel art";
+    private (int dimension, float[] vector)? serverVector;
+    private (int dimension, float[] vector)? localVector;
+
+    private bool Match => serverVector is not null && localVector is not null && serverVector.Value.vector.SequenceEqual(localVector.Value.vector);
+
+    private async Task CompareAsync()
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        // Server call
+        using var http = new HttpClient();
+        var resp = await http.GetFromJsonAsync<DebugEmbeddingResult>($"/api/embedding/debug?text={Uri.EscapeDataString(text)}");
+        if (resp is null || resp.Data is null) return;
+        serverVector = (resp.Data.dimension, resp.Data.vector);
+        // Local compute using same deterministic provider
+        var provider = new ActualGameSearch.Core.Services.DeterministicEmbeddingProvider();
+        localVector = (provider.Dimension, provider.Embed(text));
+        StateHasChanged();
+    }
+
+    private sealed class DebugEmbeddingResult { public bool Success {get;set;} public EmbeddingData? Data {get;set;} public string? Error {get;set;} }
+    private sealed class EmbeddingData { public int dimension {get;set;} public float[] vector {get;set;} = Array.Empty<float>(); }
+}

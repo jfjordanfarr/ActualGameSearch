@@ -1,0 +1,96 @@
+@page "/search"
+@using ActualGameSearch.Core.Services
+@inject IGameSearchService SearchService
+@inject IEmbeddingProvider EmbeddingProvider
+
+<h1>Game Vector Search (Deterministic Demo)</h1>
+
+<div class="mb-3">
+    <label for="q">Query</label>
+    <input id="q" class="form-control" @bind-value="query" @bind-value:event="oninput" placeholder="Type to search..." />
+</div>
+
+@if (!string.IsNullOrWhiteSpace(query))
+{
+    <p><em>Embedding dimension:</em> @EmbeddingProvider.Dimension</p>
+    @if (results is null)
+    {
+        <p>Searching...</p>
+    }
+    else if (results.Count == 0)
+    {
+        <p>No matches.</p>
+    }
+    else
+    {
+        <table class="table table-sm">
+            <thead>
+                <tr><th>Name</th><th>Score</th></tr>
+            </thead>
+            <tbody>
+            @foreach (var r in results)
+            {
+                <tr>
+                    <td>@r.Game.Name</td>
+                    <td>@r.Score.ToString("F4")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private string? query;
+    private List<GameSearchResult>? results;
+    private CancellationTokenSource? cts;
+
+    protected override void OnInitialized()
+    {
+        // preload nothing, rely on user typing
+    }
+
+    private async Task PerformSearchAsync()
+    {
+        cts?.Cancel();
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            results = null;
+            StateHasChanged();
+            return;
+        }
+        cts = new CancellationTokenSource();
+        var token = cts.Token;
+        // simulate async even though current provider is sync
+        await Task.Yield();
+        if (token.IsCancellationRequested) return;
+        results = SearchService.Search(query, 10).ToList();
+        StateHasChanged();
+    }
+
+    private string? _lastQuery;
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        if (query != _lastQuery)
+        {
+            _lastQuery = query;
+            await PerformSearchAsync();
+        }
+    }
+
+    private async Task OnQueryChanged()
+    {
+        await PerformSearchAsync();
+    }
+
+    private string? Query
+    {
+        get => query;
+        set
+        {
+            if (value == query) return;
+            query = value;
+            _ = PerformSearchAsync();
+        }
+    }
+}

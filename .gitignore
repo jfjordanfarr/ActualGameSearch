@@ -1,0 +1,12 @@
+﻿bin/
+obj/
+.vs/
+*.user
+*.swp
+games.db
+manifest.json
+raw-steam/
+apps-cache.json
+embeddings-sample.json
+*.sqlite-journal
+*.DS_Store

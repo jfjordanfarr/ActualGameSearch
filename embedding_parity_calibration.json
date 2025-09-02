@@ -1,0 +1,26 @@
+{
+  "model": "deterministic-placeholder-512",
+  "dimension": 512,
+  "prompts": [
+    "cozy farming rpg with pixel art",
+    "competitive tactical first person shooter",
+    "dark gothic roguelike with meta progression",
+    "open world survival crafting with base building",
+    "narrative driven sci fi exploration mystery",
+    "fast paced platformer precision movement",
+    "turn based strategy with deck building elements",
+    "peaceful relaxing puzzle experience",
+    "metroidvania hand drawn art style",
+    "space trading and combat simulation",
+    "medieval city builder with complex economy",
+    "sci fi colony management sim",
+    "anime action rpg combo focused combat",
+    "procedural dungeon crawler pixel roguelite",
+    "management tycoon park simulation",
+    "story rich branching narrative visual novel",
+    "tactical squad based stealth operations",
+    "physics sandbox destruction focused gameplay",
+    "card battler roguelike strategic synergy",
+    "multiplayer social deduction hidden roles"
+  ]
+}
